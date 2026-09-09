@@ -13,7 +13,7 @@ st.set_page_config(
 
 st.title("🍱 우리 학교 급식 알리미")
 st.caption(
-    "월별, 주별, 일별 급식 메뉴와 칼로리 정보를 확인하고, 선호하는 식단을 즐겨찾기하세요!"
+    "월별, 주별, 일별 급식 메뉴, 칼로리 및 주요 영양성분을 확인하고 선호하는 식단을 즐겨찾기하세요!"
 )
 
 # 2. 알레르기 매핑 테이블
@@ -59,6 +59,27 @@ def replace_allergy_codes(dish_text, convert_to_text=True):
     return re.sub(pattern, convert_match, dish_text)
 
 
+def parse_nutrients(ntr_info_str):
+    """NEIS API의 NTR_INFO 문자열에서 탄수화물, 단백질, 지방(g) 값을 추출합니다."""
+    nutrients = {"carb": 0.0, "protein": 0.0, "fat": 0.0}
+    if not ntr_info_str:
+        return nutrients
+
+    # 예: 탄수화물(g) : 110.5 / 단백질(g) : 35.2 / 지방(g) : 15.1
+    carb_m = re.search(r"탄수화물\s*\(g\)\s*:\s*([\d\.]+)", ntr_info_str)
+    prot_m = re.search(r"단백질\s*\(g\)\s*:\s*([\d\.]+)", ntr_info_str)
+    fat_m = re.search(r"지방\s*\(g\)\s*:\s*([\d\.]+)", ntr_info_str)
+
+    if carb_m:
+        nutrients["carb"] = float(carb_m.group(1))
+    if prot_m:
+        nutrients["protein"] = float(prot_m.group(1))
+    if fat_m:
+        nutrients["fat"] = float(fat_m.group(1))
+
+    return nutrients
+
+
 # 3. 사이드바 - 학교 설정 & 즐겨찾기
 st.sidebar.header("⚙️ 학교 정보 설정")
 office_code = st.sidebar.text_input(
@@ -92,7 +113,6 @@ st.sidebar.subheader("⭐ 즐겨찾기 식단 목록")
 if not st.session_state.favorites:
     st.sidebar.caption("등록된 즐겨찾기가 없습니다.")
 else:
-    # 전체 삭제 버튼 추가
     if st.sidebar.button("🗑️ 전체 삭제", use_container_width=True):
         st.session_state.favorites.clear()
         st.rerun()
@@ -160,14 +180,12 @@ if "NEIS_KEY" not in st.secrets:
 neis_key = st.secrets["NEIS_KEY"]
 
 
-# 데이터 파싱 및 개별 카드 렌더링 함수
 def render_meal_card(ymd_str, date_label, day_meals, is_today, view_type="month"):
     """급식 카드 한 장을 생성하는 공통 함수"""
     is_fav = ymd_str in st.session_state.favorites
     star_prefix = "⭐ " if is_fav else ""
 
     with st.container(border=True):
-        # 버튼 공간 확보를 위해 비율 조정 ([2.3, 1] -> [2, 1.2])
         col_title, col_btn = st.columns([2, 1.2])
         with col_title:
             if is_today:
@@ -198,47 +216,89 @@ def render_meal_card(ymd_str, date_label, day_meals, is_today, view_type="month"
 
         displayed_count = 0
 
-        # 중식 출력
-        if meal_filter in ["전체 보기", "중식만 보기"] and "중식" in day_meals:
+        # 식단 렌더링 헬퍼 함수
+        def print_meal_info(m_type, badge_color, icon):
+            nonlocal displayed_count
             displayed_count += 1
-            st.markdown(":blue[**🥣 중식**]")
-            for dish in day_meals["중식"]["dishes"]:
+            m_data = day_meals[m_type]
+            st.markdown(f":{badge_color}[**{icon} {m_type}**]")
+            for dish in m_data["dishes"]:
                 st.markdown(
                     f"<span style='font-size:0.85rem;'>• {dish}</span>",
                     unsafe_allow_html=True,
                 )
-            st.caption(f"⚡ 칼로리: {day_meals['중식']['cal']}")
+            st.caption(f"⚡ 칼로리: {m_data['cal']}")
+
+            # 탄수화물, 단백질, 지방 표시
+            nut = m_data["nutrients"]
+            st.caption(
+                f"🥗 탄: {nut['carb']}g | 단: {nut['protein']}g | 지: {nut['fat']}g"
+            )
+
+        # 중식 출력
+        if meal_filter in ["전체 보기", "중식만 보기"] and "중식" in day_meals:
+            print_meal_info("중식", "blue", "🥣")
 
         # 석식 출력
         if meal_filter in ["전체 보기", "석식만 보기"] and "석식" in day_meals:
             if displayed_count > 0:
                 st.write("")
-            displayed_count += 1
-            st.markdown(":red[**🌙 석식**]")
-            for dish in day_meals["석식"]["dishes"]:
-                st.markdown(
-                    f"<span style='font-size:0.85rem;'>• {dish}</span>",
-                    unsafe_allow_html=True,
-                )
-            st.caption(f"⚡ 칼로리: {day_meals['석식']['cal']}")
+            print_meal_info("석식", "red", "🌙")
 
-        # 기타 (조식 등)
+        # 기타 급식 (조식 등)
         if meal_filter == "전체 보기":
-            for m_type, m_data in day_meals.items():
+            for m_type in day_meals:
                 if m_type not in ["중식", "석식"]:
                     if displayed_count > 0:
                         st.write("")
-                    displayed_count += 1
-                    st.markdown(f":green[**🍴 {m_type}**]")
-                    for dish in m_data["dishes"]:
-                        st.markdown(
-                            f"<span style='font-size:0.85rem;'>• {dish}</span>",
-                            unsafe_allow_html=True,
-                        )
-                    st.caption(f"⚡ 칼로리: {m_data['cal']}")
+                    print_meal_info(m_type, "green", "🍴")
 
         if displayed_count == 0:
             st.caption("해당 식단 없음")
+
+
+def render_nutrition_chart(day_meals, title_prefix=""):
+    """일간/주간 하단에 탄단지 막대그래프 및 비율을 시각화하는 함수"""
+    if not day_meals:
+        return
+
+    # 선택 필터에 부합하는 급식 데이터 합산 계산
+    total_carb = 0.0
+    total_prot = 0.0
+    total_fat = 0.0
+
+    for m_type, m_data in day_meals.items():
+        if meal_filter == "중식만 보기" and m_type != "중식":
+            continue
+        if meal_filter == "석식만 보기" and m_type != "석식":
+            continue
+
+        nut = m_data["nutrients"]
+        total_carb += nut["carb"]
+        total_prot += nut["protein"]
+        total_fat += nut["fat"]
+
+    grand_total = total_carb + total_prot + total_fat
+
+    if grand_total > 0:
+        st.markdown(f"##### 📊 {title_prefix} 영양소 함량 및 비율")
+
+        chart_data = {
+            "영양소": ["탄수화물", "단백질", "지방"],
+            "함량(g)": [total_carb, total_prot, total_fat],
+        }
+
+        # 3가지 영양소 막대그래프
+        st.bar_chart(chart_data, x="영양소", y="함량(g)", color="영양소")
+
+        # 비율 계산
+        c_ratio = (total_carb / grand_total) * 100
+        p_ratio = (total_prot / grand_total) * 100
+        f_ratio = (total_fat / grand_total) * 100
+
+        st.caption(
+            f"**영양소 비율**: 탄수화물 **{c_ratio:.1f}%** | 단백질 **{p_ratio:.1f}%** | 지방 **{f_ratio:.1f}%**"
+        )
 
 
 # 6. 데이터 로드 및 탭 화면 구성
@@ -256,6 +316,7 @@ try:
             meal_type = row.get("MMEAL_SC_NM", "급식")
             dish = row.get("DDISH_NM", "")
             cal_info = row.get("CAL_INFO", "정보 없음")
+            ntr_info = row.get("NTR_INFO", "")
 
             formatted_dish = replace_allergy_codes(
                 dish, convert_to_text=show_allergen_names
@@ -266,9 +327,12 @@ try:
                 if d.strip()
             ]
 
+            nutrients = parse_nutrients(ntr_info)
+
             meal_dict.setdefault(ymd, {})[meal_type] = {
                 "dishes": dish_lines,
                 "cal": cal_info,
+                "nutrients": nutrients,
             }
 
     tab_month, tab_week, tab_day = st.tabs(
@@ -321,6 +385,7 @@ try:
         selected_week = month_cal[selected_week_idx]
         cols = st.columns(5)
 
+        # 1) 주별 급식 표 출력
         for i in range(5):
             day = selected_week[i]
             with cols[i]:
@@ -339,6 +404,17 @@ try:
                     render_meal_card(
                         ymd_str, date_label, day_meals, is_today, view_type="week"
                     )
+
+        st.markdown("---")
+        # 2) 주별 각 날짜 표 아래 영양소 막대그래프 출력
+        chart_cols = st.columns(5)
+        for i in range(5):
+            day = selected_week[i]
+            with chart_cols[i]:
+                if day != 0:
+                    ymd_str = f"{year}{month:02d}{day:02d}"
+                    day_meals = meal_dict.get(ymd_str, {})
+                    render_nutrition_chart(day_meals, title_prefix=f"{day}일")
 
     # ------------------ [3] 일별 보기 ------------------
     with tab_day:
@@ -363,9 +439,13 @@ try:
             date_label = f"{year}년 {month}월 {selected_day}일 ({weekdays_kr[w_idx]})"
             col_center, _ = st.columns([2, 1])
             with col_center:
+                # 1) 카드 출력
                 render_meal_card(
                     ymd_str, date_label, day_meals, is_today, view_type="day"
                 )
+                st.write("")
+                # 2) 카드 아래 막대그래프 및 비율 출력
+                render_nutrition_chart(day_meals, title_prefix=f"{selected_day}일")
 
 except requests.exceptions.RequestException as e:
     st.error(f"⚠️ 나이스 API 통신 오류: 네트워크 상태를 확인해 주세요. ({e})")
