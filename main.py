@@ -92,6 +92,13 @@ st.sidebar.subheader("⭐ 즐겨찾기 식단 목록")
 if not st.session_state.favorites:
     st.sidebar.caption("등록된 즐겨찾기가 없습니다.")
 else:
+    # 전체 삭제 버튼 추가
+    if st.sidebar.button("🗑️ 전체 삭제", use_container_width=True):
+        st.session_state.favorites.clear()
+        st.rerun()
+
+    st.sidebar.write("")
+
     for fav_date in sorted(st.session_state.favorites.keys()):
         fav_data = st.session_state.favorites[fav_date]
         with st.sidebar.expander(f"⭐ {fav_date}"):
@@ -155,25 +162,28 @@ neis_key = st.secrets["NEIS_KEY"]
 
 # 데이터 파싱 및 개별 카드 렌더링 함수
 def render_meal_card(ymd_str, date_label, day_meals, is_today, view_type="month"):
-    """급식 카드 한 장을 생성하는 공통 함수 (view_type으로 key 중복 방지)"""
+    """급식 카드 한 장을 생성하는 공통 함수"""
     is_fav = ymd_str in st.session_state.favorites
     star_prefix = "⭐ " if is_fav else ""
 
     with st.container(border=True):
-        # 상단 날짜 및 즐겨찾기 토글 버튼
-        col_title, col_btn = st.columns([3, 1])
+        # 버튼 공간 확보를 위해 비율 조정 ([2.3, 1] -> [2, 1.2])
+        col_title, col_btn = st.columns([2, 1.2])
         with col_title:
             if is_today:
                 st.markdown(
-                    f"**{star_prefix}{date_label}** :orange-background[**TODAY**]"
+                    f"**{star_prefix}{date_label}**\n:orange-background[**TODAY**]"
                 )
             else:
                 st.markdown(f"**{star_prefix}{date_label}**")
         with col_btn:
             if day_meals:
                 btn_label = "★ 해제" if is_fav else "☆ 추가"
-                # view_type을 접두사로 추가하여 버튼 key의 유일성 확보
-                if st.button(btn_label, key=f"{view_type}_fav_btn_{ymd_str}"):
+                if st.button(
+                    btn_label,
+                    key=f"{view_type}_fav_btn_{ymd_str}",
+                    use_container_width=True,
+                ):
                     if is_fav:
                         del st.session_state.favorites[ymd_str]
                     else:
@@ -261,7 +271,6 @@ try:
                 "cal": cal_info,
             }
 
-    # 탭 구성: 월별, 주별, 일별
     tab_month, tab_week, tab_day = st.tabs(
         ["🗓️ 월별 보기", "📆 주별 보기", "📌 일별 보기"]
     )
