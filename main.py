@@ -152,9 +152,10 @@ if "NEIS_KEY" not in st.secrets:
 
 neis_key = st.secrets["NEIS_KEY"]
 
-# 데이터 파싱 함수 및 개별 카드 렌더링 함수
-def render_meal_card(ymd_str, date_label, day_meals, is_today):
-    """급식 카드 한 장을 생성하는 공통 함수"""
+
+# 데이터 파싱 및 개별 카드 렌더링 함수
+def render_meal_card(ymd_str, date_label, day_meals, is_today, view_type="month"):
+    """급식 카드 한 장을 생성하는 공통 함수 (view_type으로 key 중복 방지)"""
     is_fav = ymd_str in st.session_state.favorites
     star_prefix = "⭐ " if is_fav else ""
 
@@ -171,7 +172,8 @@ def render_meal_card(ymd_str, date_label, day_meals, is_today):
         with col_btn:
             if day_meals:
                 btn_label = "★ 해제" if is_fav else "☆ 추가"
-                if st.button(btn_label, key=f"fav_btn_{ymd_str}"):
+                # view_type을 접두사로 추가하여 버튼 key의 유일성 확보
+                if st.button(btn_label, key=f"{view_type}_fav_btn_{ymd_str}"):
                     if is_fav:
                         del st.session_state.favorites[ymd_str]
                     else:
@@ -187,10 +189,7 @@ def render_meal_card(ymd_str, date_label, day_meals, is_today):
         displayed_count = 0
 
         # 중식 출력
-        if (
-            meal_filter in ["전체 보기", "중식만 보기"]
-            and "중식" in day_meals
-        ):
+        if meal_filter in ["전체 보기", "중식만 보기"] and "중식" in day_meals:
             displayed_count += 1
             st.markdown(":blue[**🥣 중식**]")
             for dish in day_meals["중식"]["dishes"]:
@@ -201,10 +200,7 @@ def render_meal_card(ymd_str, date_label, day_meals, is_today):
             st.caption(f"⚡ 칼로리: {day_meals['중식']['cal']}")
 
         # 석식 출력
-        if (
-            meal_filter in ["전체 보기", "석식만 보기"]
-            and "석식" in day_meals
-        ):
+        if meal_filter in ["전체 보기", "석식만 보기"] and "석식" in day_meals:
             if displayed_count > 0:
                 st.write("")
             displayed_count += 1
@@ -242,7 +238,6 @@ try:
             neis_key, office_code, school_code, year, month
         )
 
-    # meal_dict 구조: {'YYYYMMDD': {'중식': {'dishes': [...], 'cal': '800.5 kcal'}, ...}}
     meal_dict = {}
     if "mealServiceDietInfo" in res_data:
         rows = res_data["mealServiceDietInfo"][1]["row"]
@@ -298,7 +293,7 @@ try:
                         date_label = f"{month}월 {day}일 ({weekdays_kr[i]})"
 
                         render_meal_card(
-                            ymd_str, date_label, day_meals, is_today
+                            ymd_str, date_label, day_meals, is_today, view_type="month"
                         )
 
             if has_school_day:
@@ -332,7 +327,9 @@ try:
                     )
                     date_label = f"{month}월 {day}일 ({weekdays_kr[i]})"
 
-                    render_meal_card(ymd_str, date_label, day_meals, is_today)
+                    render_meal_card(
+                        ymd_str, date_label, day_meals, is_today, view_type="week"
+                    )
 
     # ------------------ [3] 일별 보기 ------------------
     with tab_day:
@@ -355,10 +352,11 @@ try:
             st.warning("선택하신 날짜는 주말입니다.")
         else:
             date_label = f"{year}년 {month}월 {selected_day}일 ({weekdays_kr[w_idx]})"
-            # 일별 보기 화면에서는 조금 더 크게 표현
             col_center, _ = st.columns([2, 1])
             with col_center:
-                render_meal_card(ymd_str, date_label, day_meals, is_today)
+                render_meal_card(
+                    ymd_str, date_label, day_meals, is_today, view_type="day"
+                )
 
 except requests.exceptions.RequestException as e:
     st.error(f"⚠️ 나이스 API 통신 오류: 네트워크 상태를 확인해 주세요. ({e})")
